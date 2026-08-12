@@ -941,4 +941,79 @@ def home():
             .container {
                 max-width: 700px;
                 margin: 60px auto;
-                padding: 20
+                padding: 20px;
+                text-align: center;
+            }
+
+            .card {
+                background: #192533;
+                padding: 30px;
+                border-radius: 20px;
+                box-shadow: 0 10px 40px #0008;
+            }
+
+            h1 {
+                margin-bottom: 10px;
+            }
+
+            .status {
+                color: #22c55e;
+                font-weight: bold;
+            }
+
+        </style>
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <div class="card">
+
+                <h1>👑 MKOPO Super Admin</h1>
+
+                <p class="status">
+                    🟢 System Online
+                </p>
+
+                <p>
+                    Telegram Super Admin
+                    is running successfully.
+                </p>
+
+            </div>
+
+        </div>
+
+    </body>
+    </html>
+    """
+
+
+# ============================================================
+# HEALTH
+# ============================================================
+
+@app.get("/health")
+def health():
+
+    return {
+        "status": "ok"
+    }
+
+
+# ============================================================
+# RUN
+# ============================================================
+
+if __name__ == "__main__":
+
+    app.run(
+        host="0.0.0.0",
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        )
+    )
