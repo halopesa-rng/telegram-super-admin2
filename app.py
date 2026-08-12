@@ -3,12 +3,12 @@ import secrets
 from datetime import datetime, timedelta
 
 import requests
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify
 from flask_sqlalchemy import SQLAlchemy
 
 
 # =========================================================
-# FLASK APP
+# FLASK APPLICATION
 # =========================================================
 
 app = Flask(__name__)
@@ -18,11 +18,17 @@ app.config["SECRET_KEY"] = os.environ.get(
     secrets.token_hex(32)
 )
 
+
+# =========================================================
+# DATABASE
+# =========================================================
+
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "sqlite:///super_admin.db"
-)
+).strip()
 
+# Render PostgreSQL compatibility
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace(
         "postgres://",
@@ -45,17 +51,41 @@ SUPER_ADMIN_TOKEN = os.environ.get(
     ""
 ).strip()
 
-SUPER_ADMIN_ID = str(
-    os.environ.get(
-        "SUPER_ADMIN_ID",
-        ""
-    )
+SUPER_ADMIN_ID = os.environ.get(
+    "SUPER_ADMIN_ID",
+    ""
 ).strip()
 
 APP_URL = os.environ.get(
     "APP_URL",
     "https://telegram-super-admin2.onrender.com"
-).rstrip("/")
+).strip().rstrip("/")
+
+
+# =========================================================
+# BASIC CONFIGURATION LOGGING
+# =========================================================
+
+print("==========================================")
+print("TELEGRAM SUPER ADMIN STARTING")
+print("==========================================")
+print(
+    "SUPER_ADMIN_TOKEN:",
+    "CONFIGURED" if SUPER_ADMIN_TOKEN else "MISSING"
+)
+print(
+    "SUPER_ADMIN_ID:",
+    SUPER_ADMIN_ID if SUPER_ADMIN_ID else "MISSING"
+)
+print(
+    "APP_URL:",
+    APP_URL
+)
+print(
+    "DATABASE:",
+    "CONFIGURED"
+)
+print("==========================================")
 
 
 # =========================================================
@@ -121,8 +151,24 @@ class SetupSession(db.Model):
     )
 
 
+# =========================================================
+# CREATE DATABASE TABLES
+# =========================================================
+
 with app.app_context():
-    db.create_all()
+
+    try:
+
+        db.create_all()
+
+        print("DATABASE TABLES: READY")
+
+    except Exception as error:
+
+        print(
+            "DATABASE ERROR:",
+            repr(error)
+        )
 
 
 # =========================================================
@@ -132,7 +178,12 @@ with app.app_context():
 def telegram(method, data=None):
 
     if not SUPER_ADMIN_TOKEN:
-        print("ERROR: SUPER_ADMIN_TOKEN is missing")
+
+        print(
+            "TELEGRAM ERROR: "
+            "SUPER_ADMIN_TOKEN is missing."
+        )
+
         return None
 
     url = (
@@ -142,6 +193,11 @@ def telegram(method, data=None):
 
     try:
 
+        print(
+            "TELEGRAM REQUEST:",
+            method
+        )
+
         response = requests.post(
             url,
             json=data or {},
@@ -149,16 +205,35 @@ def telegram(method, data=None):
         )
 
         print(
-            f"Telegram {method}: "
-            f"{response.status_code}"
+            "TELEGRAM STATUS:",
+            response.status_code
         )
 
-        return response.json()
+        try:
+
+            result = response.json()
+
+        except ValueError:
+
+            print(
+                "TELEGRAM INVALID JSON:",
+                response.text
+            )
+
+            return None
+
+        print(
+            "TELEGRAM RESULT:",
+            result
+        )
+
+        return result
 
     except requests.RequestException as error:
 
         print(
-            f"Telegram error: {error}"
+            "TELEGRAM REQUEST ERROR:",
+            repr(error)
         )
 
         return None
@@ -174,13 +249,28 @@ def send_message(
     keyboard=None
 ):
 
+    if not chat_id:
+
+        print(
+            "SEND MESSAGE ERROR: "
+            "chat_id is missing."
+        )
+
+        return None
+
     payload = {
         "chat_id": chat_id,
         "text": text
     }
 
     if keyboard:
+
         payload["reply_markup"] = keyboard
+
+    print(
+        "SENDING MESSAGE TO:",
+        chat_id
+    )
 
     return telegram(
         "sendMessage",
@@ -196,6 +286,10 @@ def answer_callback(
     callback_id,
     text=""
 ):
+
+    if not callback_id:
+
+        return None
 
     return telegram(
         "answerCallbackQuery",
@@ -213,11 +307,28 @@ def answer_callback(
 def is_super_admin(chat_id):
 
     if not SUPER_ADMIN_ID:
+
+        print(
+            "AUTH ERROR: SUPER_ADMIN_ID "
+            "is missing."
+        )
+
         return False
 
-    return str(chat_id) == str(
-        SUPER_ADMIN_ID
+    result = (
+        str(chat_id).strip()
+        ==
+        str(SUPER_ADMIN_ID).strip()
     )
+
+    print(
+        "ADMIN CHECK:",
+        chat_id,
+        "=>",
+        result
+    )
+
+    return result
 
 
 # =========================================================
@@ -227,6 +338,7 @@ def is_super_admin(chat_id):
 def main_menu(chat_id):
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -258,9 +370,11 @@ def main_menu(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
+
         chat_id,
 
         "👑 SUPER ADMIN\n\n"
@@ -269,6 +383,7 @@ def main_menu(chat_id):
         "Chagua huduma:",
 
         keyboard
+
     )
 
 
@@ -278,9 +393,25 @@ def main_menu(chat_id):
 
 def manage_bots(chat_id):
 
-    bots = ManagedBot.query.order_by(
-        ManagedBot.id.desc()
-    ).all()
+    try:
+
+        bots = ManagedBot.query.order_by(
+            ManagedBot.id.desc()
+        ).all()
+
+    except Exception as error:
+
+        print(
+            "MANAGE BOTS DATABASE ERROR:",
+            repr(error)
+        )
+
+        send_message(
+            chat_id,
+            "❌ Kuna tatizo la database."
+        )
+
+        return
 
     if not bots:
 
@@ -292,10 +423,12 @@ def manage_bots(chat_id):
     else:
 
         lines = [
+
             "🤖 MANAGE BOTS",
             "",
             "Bots zilizounganishwa:",
             ""
+
         ]
 
         for bot in bots:
@@ -307,15 +440,18 @@ def manage_bots(chat_id):
             )
 
             lines.append(
+
                 f"🆔 #{bot.id}\n"
                 f"🤖 {bot.name}\n"
                 f"👤 {username}\n"
                 f"🟢 {bot.status}\n"
+
             )
 
         text = "\n".join(lines)
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -340,6 +476,7 @@ def manage_bots(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
@@ -350,37 +487,54 @@ def manage_bots(chat_id):
 
 
 # =========================================================
-# CREATE SECURE SETUP SESSION
+# CREATE SETUP SESSION
 # =========================================================
 
 def create_setup_session(chat_id):
 
-    old_sessions = SetupSession.query.filter_by(
-        chat_id=str(chat_id)
-    ).all()
+    try:
 
-    for old in old_sessions:
+        old_sessions = SetupSession.query.filter_by(
+            chat_id=str(chat_id)
+        ).all()
 
-        db.session.delete(old)
+        for old in old_sessions:
 
-    setup_token = secrets.token_urlsafe(32)
+            db.session.delete(old)
 
-    expires = (
-        datetime.utcnow()
-        + timedelta(minutes=10)
-    )
+        setup_token = secrets.token_urlsafe(32)
 
-    setup = SetupSession(
-        token=setup_token,
-        chat_id=str(chat_id),
-        expires_at=expires
-    )
+        expires = (
+            datetime.utcnow()
+            + timedelta(minutes=10)
+        )
 
-    db.session.add(setup)
+        setup = SetupSession(
 
-    db.session.commit()
+            token=setup_token,
 
-    return setup_token
+            chat_id=str(chat_id),
+
+            expires_at=expires
+
+        )
+
+        db.session.add(setup)
+
+        db.session.commit()
+
+        return setup_token
+
+    except Exception as error:
+
+        db.session.rollback()
+
+        print(
+            "SETUP SESSION ERROR:",
+            repr(error)
+        )
+
+        return None
 
 
 # =========================================================
@@ -393,12 +547,23 @@ def add_bot(chat_id):
         chat_id
     )
 
+    if not setup_token:
+
+        send_message(
+            chat_id,
+            "❌ Imeshindikana kutengeneza "
+            "secure setup link."
+        )
+
+        return
+
     setup_url = (
         f"{APP_URL}/setup/"
         f"{setup_token}"
     )
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -416,6 +581,7 @@ def add_bot(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
@@ -424,8 +590,8 @@ def add_bot(chat_id):
 
         "➕ ADD BOT\n\n"
 
-        "Hatua inayofuata tutaunganisha "
-        "bot mpya kupitia ukurasa salama.\n\n"
+        "Tutaunganisha bot mpya kupitia "
+        "ukurasa salama.\n\n"
 
         "🔐 Usitume Bot Token kwenye Telegram chat.\n\n"
 
@@ -434,14 +600,19 @@ def add_bot(chat_id):
         "Bonyeza kitufe hapa chini:",
 
         keyboard
+
     )
 
 
 # =========================================================
-# VERIFY TELEGRAM BOT TOKEN
+# VERIFY BOT TOKEN
 # =========================================================
 
 def verify_bot_token(token):
+
+    if not token:
+
+        return None
 
     try:
 
@@ -451,17 +622,35 @@ def verify_bot_token(token):
             f"bot{token}/getMe",
 
             timeout=15
+
+        )
+
+        print(
+            "BOT TOKEN VERIFICATION:",
+            response.status_code
         )
 
         data = response.json()
 
         if not data.get("ok"):
 
+            print(
+                "INVALID BOT TOKEN:",
+                data
+            )
+
             return None
 
-        return data.get("result")
+        return data.get(
+            "result"
+        )
 
-    except requests.RequestException:
+    except requests.RequestException as error:
+
+        print(
+            "BOT TOKEN REQUEST ERROR:",
+            repr(error)
+        )
 
         return None
 
@@ -495,6 +684,7 @@ def setup_bot(setup_token):
     if setup.expires_at < datetime.utcnow():
 
         db.session.delete(setup)
+
         db.session.commit()
 
         return (
@@ -538,11 +728,14 @@ def setup_bot(setup_token):
         if not bot_info:
 
             return render_template(
+
                 "setup.html",
+
                 error=(
                     "❌ Bot Token si sahihi "
                     "au Telegram haikupokea."
                 )
+
             )
 
         username = bot_info.get(
@@ -557,34 +750,62 @@ def setup_bot(setup_token):
         if existing:
 
             return render_template(
+
                 "setup.html",
+
                 error=(
                     "⚠️ Bot hii tayari "
                     "imeunganishwa."
                 )
+
             )
 
-        bot = ManagedBot(
+        try:
 
-            name=name,
+            bot = ManagedBot(
 
-            username=username,
+                name=name,
 
-            token=token,
+                username=username,
 
-            status="CONNECTED"
-        )
+                token=token,
 
-        db.session.add(bot)
+                status="CONNECTED"
 
-        db.session.delete(setup)
+            )
 
-        db.session.commit()
+            db.session.add(bot)
+
+            db.session.delete(setup)
+
+            db.session.commit()
+
+        except Exception as error:
+
+            db.session.rollback()
+
+            print(
+                "SAVE BOT ERROR:",
+                repr(error)
+            )
+
+            return render_template(
+
+                "setup.html",
+
+                error=(
+                    "❌ Imeshindikana kuhifadhi "
+                    "bot kwenye database."
+                )
+
+            )
 
         username_text = (
+
             f"@{username}"
             if username
             else "-"
+
         )
 
         send_message(
@@ -602,11 +823,15 @@ def setup_bot(setup_token):
 
             "🟢 Bot imeunganishwa "
             "kwenye Super Admin."
+
         )
 
         return render_template(
+
             "connected.html",
+
             bot=bot
+
         )
 
     return render_template(
@@ -620,17 +845,34 @@ def setup_bot(setup_token):
 
 def dashboard(chat_id):
 
-    total = ManagedBot.query.count()
+    try:
 
-    connected = ManagedBot.query.filter_by(
-        status="CONNECTED"
-    ).count()
+        total = ManagedBot.query.count()
 
-    disconnected = ManagedBot.query.filter_by(
-        status="DISCONNECTED"
-    ).count()
+        connected = ManagedBot.query.filter_by(
+            status="CONNECTED"
+        ).count()
+
+        disconnected = ManagedBot.query.filter_by(
+            status="DISCONNECTED"
+        ).count()
+
+    except Exception as error:
+
+        print(
+            "DASHBOARD ERROR:",
+            repr(error)
+        )
+
+        send_message(
+            chat_id,
+            "❌ Kuna tatizo la database."
+        )
+
+        return
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -648,6 +890,7 @@ def dashboard(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
@@ -665,6 +908,7 @@ def dashboard(chat_id):
         "Mfumo wa Super Admin uko tayari.",
 
         keyboard
+
     )
 
 
@@ -675,6 +919,7 @@ def dashboard(chat_id):
 def notifications(chat_id):
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -685,6 +930,7 @@ def notifications(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
@@ -692,10 +938,10 @@ def notifications(chat_id):
         chat_id,
 
         "🔔 NOTIFICATIONS\n\n"
-
         "Hakuna notification mpya kwa sasa.",
 
         keyboard
+
     )
 
 
@@ -706,6 +952,7 @@ def notifications(chat_id):
 def settings(chat_id):
 
     keyboard = {
+
         "inline_keyboard": [
 
             [
@@ -723,6 +970,7 @@ def settings(chat_id):
             ]
 
         ]
+
     }
 
     send_message(
@@ -737,21 +985,28 @@ def settings(chat_id):
         "🌐 Application URL:\n"
         f"{APP_URL}\n\n"
 
-        "🔐 Token configuration: ACTIVE",
+        "🔐 Token configuration: "
+        f"{'ACTIVE' if SUPER_ADMIN_TOKEN else 'MISSING'}",
 
         keyboard
+
     )
 
 
 # =========================================================
-# TELEGRAM UPDATE HANDLER
+# PROCESS TELEGRAM UPDATE
 # =========================================================
 
 def process_update(update):
 
-    # -----------------------------------------------------
+    print("==========================================")
+    print("TELEGRAM UPDATE RECEIVED")
+    print(update)
+    print("==========================================")
+
+    # =====================================================
     # NORMAL MESSAGE
-    # -----------------------------------------------------
+    # =====================================================
 
     message = update.get(
         "message"
@@ -769,15 +1024,42 @@ def process_update(update):
         )
 
         if not chat_id:
+
+            print(
+                "MESSAGE ERROR: chat_id missing"
+            )
+
             return
+
+        print(
+            "MESSAGE CHAT ID:",
+            chat_id
+        )
+
+        print(
+            "CONFIGURED ADMIN ID:",
+            SUPER_ADMIN_ID
+        )
 
         if not is_super_admin(
             chat_id
         ):
 
+            print(
+                "UNAUTHORIZED USER:",
+                chat_id
+            )
+
             send_message(
+
                 chat_id,
-                "⛔ Huna ruhusa ya kutumia bot hii."
+
+                "⛔ Huna ruhusa ya kutumia "
+                "bot hii.\n\n"
+
+                "Admin ID iliyopokelewa:\n"
+                f"{chat_id}"
+
             )
 
             return
@@ -787,9 +1069,16 @@ def process_update(update):
             ""
         ).strip()
 
-        if text.startswith(
-            "/start"
-        ):
+        print(
+            "MESSAGE TEXT:",
+            text
+        )
+
+        if text.startswith("/start"):
+
+            print(
+                "COMMAND: /start"
+            )
 
             main_menu(
                 chat_id
@@ -797,9 +1086,11 @@ def process_update(update):
 
             return
 
-        if text.startswith(
-            "/menu"
-        ):
+        if text.startswith("/menu"):
+
+            print(
+                "COMMAND: /menu"
+            )
 
             main_menu(
                 chat_id
@@ -807,9 +1098,11 @@ def process_update(update):
 
             return
 
-        if text.startswith(
-            "/bots"
-        ):
+        if text.startswith("/bots"):
+
+            print(
+                "COMMAND: /bots"
+            )
 
             manage_bots(
                 chat_id
@@ -817,13 +1110,20 @@ def process_update(update):
 
             return
 
-        if text.startswith(
-            "/health"
-        ):
+        if text.startswith("/health"):
+
+            print(
+                "COMMAND: /health"
+            )
 
             send_message(
+
                 chat_id,
-                "🟢 Super Admin Bot iko hai."
+
+                "🟢 Super Admin Bot iko hai.\n\n"
+                f"🆔 Your ID: {chat_id}\n"
+                f"👑 Admin ID: {SUPER_ADMIN_ID}"
+
             )
 
             return
@@ -834,15 +1134,20 @@ def process_update(update):
 
         return
 
-    # -----------------------------------------------------
+    # =====================================================
     # CALLBACK QUERY
-    # -----------------------------------------------------
+    # =====================================================
 
     callback = update.get(
         "callback_query"
     )
 
     if not callback:
+
+        print(
+            "UPDATE HAS NO MESSAGE OR CALLBACK"
+        )
+
         return
 
     callback_id = callback.get(
@@ -868,7 +1173,15 @@ def process_update(update):
         "id"
     )
 
+    print(
+        "CALLBACK:",
+        data,
+        "CHAT:",
+        chat_id
+    )
+
     if not chat_id:
+
         return
 
     if not is_super_admin(
@@ -885,10 +1198,6 @@ def process_update(update):
     answer_callback(
         callback_id
     )
-
-    # -----------------------------------------------------
-    # CALLBACK ACTIONS
-    # -----------------------------------------------------
 
     if data == "main_menu":
 
@@ -926,6 +1235,13 @@ def process_update(update):
             chat_id
         )
 
+    else:
+
+        print(
+            "UNKNOWN CALLBACK:",
+            data
+        )
+
 
 # =========================================================
 # TELEGRAM WEBHOOK
@@ -937,43 +1253,198 @@ def process_update(update):
 )
 def telegram_webhook():
 
-    update = request.get_json(
-        silent=True
-    )
-
-    if not update:
-
-        return {
-            "ok": False,
-            "error": "Invalid update"
-        }, 400
+    print("==========================================")
+    print("WEBHOOK REQUEST RECEIVED")
+    print("==========================================")
 
     try:
+
+        update = request.get_json(
+            silent=True
+        )
+
+        if not update:
+
+            print(
+                "WEBHOOK ERROR: "
+                "No JSON update received."
+            )
+
+            return jsonify({
+
+                "ok": False,
+
+                "error": "Invalid update"
+
+            }), 400
+
+        print(
+            "WEBHOOK UPDATE:",
+            update
+        )
 
         process_update(
             update
         )
 
+        return jsonify({
+
+            "ok": True
+
+        }), 200
+
     except Exception as error:
 
         print(
-            "Webhook processing error:",
-            error
+            "WEBHOOK FATAL ERROR:",
+            repr(error)
         )
 
-    return {
-        "ok": True
-    }
+        # Return 200 so Telegram does not
+        # continuously retry the same update.
+        return jsonify({
+
+            "ok": True,
+
+            "processed": False,
+
+            "error": "Internal processing error"
+
+        }), 200
 
 
 # =========================================================
-# HOME
+# WEBHOOK TEST
+# =========================================================
+
+@app.route(
+    "/telegram/webhook",
+    methods=["GET"]
+)
+def webhook_get():
+
+    return jsonify({
+
+        "status": "ok",
+
+        "message": (
+            "Telegram webhook endpoint is active."
+        ),
+
+        "method": "POST",
+
+        "endpoint": "/telegram/webhook"
+
+    })
+
+
+# =========================================================
+# SET WEBHOOK
+# =========================================================
+
+def set_telegram_webhook():
+
+    if not SUPER_ADMIN_TOKEN:
+
+        print(
+            "WEBHOOK SETUP SKIPPED: "
+            "SUPER_ADMIN_TOKEN missing."
+        )
+
+        return None
+
+    webhook_url = (
+        f"{APP_URL}/telegram/webhook"
+    )
+
+    print(
+        "SETTING TELEGRAM WEBHOOK:",
+        webhook_url
+    )
+
+    return telegram(
+
+        "setWebhook",
+
+        {
+            "url": webhook_url
+        }
+
+    )
+
+
+# =========================================================
+# WEBHOOK INFO
+# =========================================================
+
+@app.route(
+    "/webhook-info",
+    methods=["GET"]
+)
+def webhook_info():
+
+    result = telegram(
+        "getWebhookInfo"
+    )
+
+    if result is None:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": (
+                "Could not contact Telegram."
+            )
+
+        }), 500
+
+    return jsonify(
+        result
+    )
+
+
+# =========================================================
+# BOT INFORMATION
+# =========================================================
+
+@app.route(
+    "/bot-info",
+    methods=["GET"]
+)
+def bot_info():
+
+    result = telegram(
+        "getMe"
+    )
+
+    if result is None:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": (
+                "Telegram token missing "
+                "or Telegram API unavailable."
+            )
+
+        }), 500
+
+    return jsonify(
+        result
+    )
+
+
+# =========================================================
+# HOME PAGE
 # =========================================================
 
 @app.route("/")
 def home():
 
     return """
+
     <!DOCTYPE html>
 
     <html lang="en">
@@ -990,29 +1461,51 @@ def home():
         <style>
 
             body {
+
                 margin:0;
                 padding:30px;
+
                 background:#101820;
                 color:white;
+
                 font-family:Arial,sans-serif;
+
                 text-align:center;
+
             }
 
             .card {
+
                 max-width:600px;
+
                 margin:60px auto;
+
                 background:#1d2935;
+
                 padding:35px;
+
                 border-radius:20px;
+
             }
 
             h1 {
+
                 margin-bottom:10px;
+
             }
 
             .ok {
+
                 color:#35d07f;
+
                 font-weight:bold;
+
+            }
+
+            a {
+
+                color:#35d07f;
+
             }
 
         </style>
@@ -1023,7 +1516,9 @@ def home():
 
         <div class="card">
 
-            <h1>👑 MKOPO Super Admin</h1>
+            <h1>
+                👑 MKOPO Super Admin
+            </h1>
 
             <p class="ok">
                 🟢 System is running
@@ -1036,7 +1531,27 @@ def home():
 
             <p>
                 Webhook:
-                <strong>/telegram/webhook</strong>
+                <strong>
+                    /telegram/webhook
+                </strong>
+            </p>
+
+            <p>
+                <a href="/health">
+                    Health Check
+                </a>
+            </p>
+
+            <p>
+                <a href="/webhook-info">
+                    Webhook Information
+                </a>
+            </p>
+
+            <p>
+                <a href="/bot-info">
+                    Bot Information
+                </a>
             </p>
 
         </div>
@@ -1044,6 +1559,7 @@ def home():
     </body>
 
     </html>
+
     """
 
 
@@ -1057,11 +1573,27 @@ def home():
 )
 def health():
 
-    return {
+    return jsonify({
+
         "status": "ok",
+
         "service": "telegram-super-admin",
-        "webhook": "/telegram/webhook"
-    }
+
+        "webhook": "/telegram/webhook",
+
+        "token_configured": bool(
+            SUPER_ADMIN_TOKEN
+        ),
+
+        "admin_id_configured": bool(
+            SUPER_ADMIN_ID
+        ),
+
+        "database_configured": bool(
+            DATABASE_URL
+        )
+
+    })
 
 
 # =========================================================
@@ -1071,23 +1603,115 @@ def health():
 @app.errorhandler(404)
 def not_found(error):
 
-    return {
+    return jsonify({
+
         "error": "Not Found",
+
         "status": 404
-    }, 404
+
+    }), 404
 
 
 @app.errorhandler(500)
 def server_error(error):
 
-    return {
+    return jsonify({
+
         "error": "Internal Server Error",
+
         "status": 500
-    }, 500
+
+    }), 500
 
 
 # =========================================================
-# RUN
+# STARTUP
+# =========================================================
+
+def startup():
+
+    print("==========================================")
+    print("APPLICATION STARTUP")
+    print("==========================================")
+
+    if not SUPER_ADMIN_TOKEN:
+
+        print(
+            "WARNING: SUPER_ADMIN_TOKEN "
+            "IS NOT CONFIGURED."
+        )
+
+    if not SUPER_ADMIN_ID:
+
+        print(
+            "WARNING: SUPER_ADMIN_ID "
+            "IS NOT CONFIGURED."
+        )
+
+    if SUPER_ADMIN_TOKEN:
+
+        try:
+
+            result = telegram(
+                "getMe"
+            )
+
+            if result and result.get("ok"):
+
+                bot = result.get(
+                    "result",
+                    {}
+                )
+
+                print(
+                    "SUPER ADMIN BOT:",
+                    bot.get("first_name")
+                )
+
+                print(
+                    "BOT USERNAME:",
+                    bot.get("username")
+                )
+
+            else:
+
+                print(
+                    "WARNING: Telegram getMe failed."
+                )
+
+            # Automatically make sure the
+            # Render webhook is correct.
+
+            webhook_result = set_telegram_webhook()
+
+            if webhook_result:
+
+                print(
+                    "WEBHOOK SETUP RESULT:",
+                    webhook_result
+                )
+
+        except Exception as error:
+
+            print(
+                "STARTUP TELEGRAM ERROR:",
+                repr(error)
+            )
+
+    print("==========================================")
+    print("APPLICATION READY")
+    print("==========================================")
+
+
+# =========================================================
+# RUN STARTUP
+# =========================================================
+
+startup()
+
+
+# =========================================================
+# LOCAL DEVELOPMENT
 # =========================================================
 
 if __name__ == "__main__":
@@ -1100,6 +1724,11 @@ if __name__ == "__main__":
     )
 
     app.run(
+
         host="0.0.0.0",
-        port=port
+
+        port=port,
+
+        debug=False
+
     )
