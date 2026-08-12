@@ -1,1 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Bot - Super Admin</title>
 
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f1720;
+            color: #fff;
+        }
+
+        .header {
+            background: #1b2735;
+            padding: 20px;
+            text-align: center;
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 30px auto;
+            padding: 15px;
+        }
+
+        .card {
+            background: #192533;
+            border-radius: 18px;
+            padding: 25px;
+            box-shadow: 0 8px 30px rgba(0,0,0,.25);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 24px;
+        }
+
+        .info {
+            background: #102d22;
+            border-left: 4px solid #22c55e;
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 22px;
+            color: #d8ffe8;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        label {
+            display: block;
+            margin-top: 18px;
+            margin-bottom: 7px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #465465;
+            border-radius: 10px;
+            background: #101923;
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #3b82f6;
+        }
+
+        .hint {
+            color: #9ca8b5;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 25px;
+            padding: 15px;
+            border: none;
+            border-radius: 11px;
+            background: #1683ff;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #006bd6;
+        }
+
+        .back {
+            display: block;
+            text-align: center;
+            margin-top: 18px;
+            color: #8ec5ff;
+            text-decoration: none;
+        }
+
+        .warning {
+            margin-top: 20px;
+            color: #ffcc80;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    🤖 MKOPO Super Admin
+</div>
+
+<div class="container">
+
+    <div class="card">
+
+        <h1>➕ Add New Bot</h1>
+
+        <div class="info">
+            🔒 <strong>Secure Registration</strong><br>
+            Bot tokens are never entered into the Telegram chat.
+            Enter the token only on this secure page.
+        </div>
+
+        <form method="POST" action="/admin/add-bot">
+
+            <label>Bot Name</label>
+
+            <input
+                type="text"
+                name="name"
+                placeholder="Example: Mikopo Tanzania"
+                required
+            >
+
+            <label>Telegram Bot Token</label>
+
+            <input
+                type="password"
+                name="token"
+                placeholder="Paste BotFather token"
+                required
+            >
+
+            <div class="hint">
+                Get the token from Telegram @BotFather.
+            </div>
+
+            <label>Bot Username</label>
+
+            <input
+                type="text"
+                name="username"
+                placeholder="Example: @MikopoTanzaniaBot"
+            >
+
+            <button type="submit">
+                🔐 REGISTER BOT SECURELY
+            </button>
+
+        </form>
+
+        <a class="back" href="/">
+            ← Back to Super Admin
+        </a>
+
+        <div class="warning">
+            ⚠️ Never send your bot token to another person or post it
+            publicly. Anyone with the token can control that bot.
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+          </html>
