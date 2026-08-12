@@ -20,7 +20,7 @@ app.config["SECRET_KEY"] = os.environ.get(
 
 
 # =========================================================
-# DATABASE
+# DATABASE CONFIGURATION
 # =========================================================
 
 DATABASE_URL = os.environ.get(
@@ -28,7 +28,8 @@ DATABASE_URL = os.environ.get(
     "sqlite:///super_admin.db"
 ).strip()
 
-# Render PostgreSQL compatibility
+# Render may provide postgres://
+# SQLAlchemy expects postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace(
         "postgres://",
@@ -63,28 +64,41 @@ APP_URL = os.environ.get(
 
 
 # =========================================================
-# BASIC CONFIGURATION LOGGING
+# STARTUP LOG
 # =========================================================
 
+print("")
 print("==========================================")
-print("TELEGRAM SUPER ADMIN STARTING")
+print("TELEGRAM SUPER ADMIN")
+print("APPLICATION STARTING")
 print("==========================================")
+
 print(
     "SUPER_ADMIN_TOKEN:",
-    "CONFIGURED" if SUPER_ADMIN_TOKEN else "MISSING"
+    "CONFIGURED"
+    if SUPER_ADMIN_TOKEN
+    else "MISSING"
 )
+
 print(
     "SUPER_ADMIN_ID:",
-    SUPER_ADMIN_ID if SUPER_ADMIN_ID else "MISSING"
+    SUPER_ADMIN_ID
+    if SUPER_ADMIN_ID
+    else "MISSING"
 )
+
 print(
     "APP_URL:",
     APP_URL
 )
+
 print(
     "DATABASE:",
     "CONFIGURED"
+    if DATABASE_URL
+    else "MISSING"
 )
+
 print("==========================================")
 
 
@@ -161,7 +175,9 @@ with app.app_context():
 
         db.create_all()
 
-        print("DATABASE TABLES: READY")
+        print(
+            "DATABASE TABLES: READY"
+        )
 
     except Exception as error:
 
@@ -172,7 +188,7 @@ with app.app_context():
 
 
 # =========================================================
-# TELEGRAM API
+# TELEGRAM API - SUPER ADMIN BOT
 # =========================================================
 
 def telegram(method, data=None):
@@ -193,11 +209,6 @@ def telegram(method, data=None):
 
     try:
 
-        print(
-            "TELEGRAM REQUEST:",
-            method
-        )
-
         response = requests.post(
             url,
             json=data or {},
@@ -205,8 +216,8 @@ def telegram(method, data=None):
         )
 
         print(
-            "TELEGRAM STATUS:",
-            response.status_code
+            f"Telegram {method}: "
+            f"{response.status_code}"
         )
 
         try:
@@ -216,14 +227,14 @@ def telegram(method, data=None):
         except ValueError:
 
             print(
-                "TELEGRAM INVALID JSON:",
+                "Telegram returned invalid JSON:",
                 response.text
             )
 
             return None
 
         print(
-            "TELEGRAM RESULT:",
+            "Telegram result:",
             result
         )
 
@@ -232,7 +243,7 @@ def telegram(method, data=None):
     except requests.RequestException as error:
 
         print(
-            "TELEGRAM REQUEST ERROR:",
+            "Telegram request error:",
             repr(error)
         )
 
@@ -240,7 +251,7 @@ def telegram(method, data=None):
 
 
 # =========================================================
-# SEND MESSAGE
+# SUPER ADMIN SEND MESSAGE
 # =========================================================
 
 def send_message(
@@ -252,8 +263,7 @@ def send_message(
     if not chat_id:
 
         print(
-            "SEND MESSAGE ERROR: "
-            "chat_id is missing."
+            "SEND MESSAGE ERROR: chat_id missing"
         )
 
         return None
@@ -267,11 +277,6 @@ def send_message(
 
         payload["reply_markup"] = keyboard
 
-    print(
-        "SENDING MESSAGE TO:",
-        chat_id
-    )
-
     return telegram(
         "sendMessage",
         payload
@@ -279,7 +284,7 @@ def send_message(
 
 
 # =========================================================
-# ANSWER CALLBACK
+# ANSWER SUPER ADMIN CALLBACK
 # =========================================================
 
 def answer_callback(
@@ -301,7 +306,7 @@ def answer_callback(
 
 
 # =========================================================
-# SUPER ADMIN CHECK
+# SUPER ADMIN AUTHORIZATION
 # =========================================================
 
 def is_super_admin(chat_id):
@@ -309,8 +314,7 @@ def is_super_admin(chat_id):
     if not SUPER_ADMIN_ID:
 
         print(
-            "AUTH ERROR: SUPER_ADMIN_ID "
-            "is missing."
+            "SUPER ADMIN ID IS MISSING"
         )
 
         return False
@@ -332,7 +336,7 @@ def is_super_admin(chat_id):
 
 
 # =========================================================
-# MAIN MENU
+# SUPER ADMIN MAIN MENU
 # =========================================================
 
 def main_menu(chat_id):
@@ -487,7 +491,7 @@ def manage_bots(chat_id):
 
 
 # =========================================================
-# CREATE SETUP SESSION
+# CREATE SECURE SETUP SESSION
 # =========================================================
 
 def create_setup_session(chat_id):
@@ -625,19 +629,15 @@ def verify_bot_token(token):
 
         )
 
-        print(
-            "BOT TOKEN VERIFICATION:",
-            response.status_code
-        )
-
         data = response.json()
 
-        if not data.get("ok"):
+        print(
+            "BOT TOKEN VERIFICATION:",
+            response.status_code,
+            data
+        )
 
-            print(
-                "INVALID BOT TOKEN:",
-                data
-            )
+        if not data.get("ok"):
 
             return None
 
@@ -660,6 +660,518 @@ def verify_bot_token(token):
 
 
 # =========================================================
+# MANAGED BOT TELEGRAM API
+# =========================================================
+
+def managed_telegram(
+    bot,
+    method,
+    data=None
+):
+
+    if not bot:
+
+        print(
+            "MANAGED TELEGRAM ERROR: "
+            "Bot object missing."
+        )
+
+        return None
+
+    if not bot.token:
+
+        print(
+            "MANAGED TELEGRAM ERROR: "
+            "Bot token missing."
+        )
+
+        return None
+
+    url = (
+        "https://api.telegram.org/"
+        f"bot{bot.token}/{method}"
+    )
+
+    try:
+
+        response = requests.post(
+
+            url,
+
+            json=data or {},
+
+            timeout=20
+
+        )
+
+        try:
+
+            result = response.json()
+
+        except ValueError:
+
+            print(
+                "MANAGED BOT INVALID JSON:",
+                response.text
+            )
+
+            return None
+
+        print(
+
+            f"MANAGED BOT #{bot.id} "
+            f"{method}: "
+            f"{response.status_code}"
+
+        )
+
+        print(
+            "RESULT:",
+            result
+        )
+
+        return result
+
+    except requests.RequestException as error:
+
+        print(
+            "MANAGED TELEGRAM ERROR:",
+            repr(error)
+        )
+
+        return None
+
+
+# =========================================================
+# SEND MESSAGE FROM MANAGED BOT
+# =========================================================
+
+def managed_send_message(
+    bot,
+    chat_id,
+    text,
+    keyboard=None
+):
+
+    payload = {
+
+        "chat_id": chat_id,
+
+        "text": text
+
+    }
+
+    if keyboard:
+
+        payload["reply_markup"] = keyboard
+
+    return managed_telegram(
+
+        bot,
+
+        "sendMessage",
+
+        payload
+
+    )
+
+
+# =========================================================
+# SET WEBHOOK FOR MANAGED BOT
+# =========================================================
+
+def set_managed_bot_webhook(bot):
+
+    webhook_url = (
+
+        f"{APP_URL}/telegram/bot/"
+        f"{bot.id}/webhook"
+
+    )
+
+    print(
+        f"SETTING WEBHOOK FOR BOT #{bot.id}:",
+        webhook_url
+    )
+
+    result = managed_telegram(
+
+        bot,
+
+        "setWebhook",
+
+        {
+            "url": webhook_url
+        }
+
+    )
+
+    return result
+
+
+# =========================================================
+# GET MANAGED BOT WEBHOOK INFO
+# =========================================================
+
+def get_managed_bot_webhook_info(bot):
+
+    return managed_telegram(
+        bot,
+        "getWebhookInfo"
+    )
+
+
+# =========================================================
+# MANAGED BOT MENU
+# =========================================================
+
+def managed_bot_menu(
+    bot,
+    chat_id
+):
+
+    keyboard = {
+
+        "inline_keyboard": [
+
+            [
+                {
+                    "text": "📋 Menu",
+                    "callback_data": "bot_menu"
+                }
+            ],
+
+            [
+                {
+                    "text": "ℹ️ Help",
+                    "callback_data": "bot_help"
+                }
+            ]
+
+        ]
+
+    }
+
+    managed_send_message(
+
+        bot,
+
+        chat_id,
+
+        f"🤖 Karibu kwenye {bot.name}.\n\n"
+
+        "Bot iko tayari kupokea huduma zako.\n\n"
+
+        "Chagua huduma hapa chini:",
+
+        keyboard
+
+    )
+
+
+# =========================================================
+# MANAGED BOT HELP
+# =========================================================
+
+def managed_bot_help(
+    bot,
+    chat_id
+):
+
+    managed_send_message(
+
+        bot,
+
+        chat_id,
+
+        "ℹ️ HELP\n\n"
+
+        "Tumia /start kufungua menu kuu.\n"
+
+        "Tumia /help kupata msaada.\n\n"
+
+        "Kwa huduma zaidi, "
+        "chagua huduma kwenye menu."
+
+    )
+
+
+# =========================================================
+# NOTIFY SUPER ADMIN
+# =========================================================
+
+def notify_super_admin(
+
+    bot,
+    chat_id,
+    username,
+    text
+
+):
+
+    if not SUPER_ADMIN_ID:
+
+        print(
+            "SUPER ADMIN NOTIFICATION SKIPPED:"
+            " SUPER_ADMIN_ID missing."
+        )
+
+        return
+
+    username_text = (
+
+        f"@{username}"
+
+        if username
+
+        else "-"
+
+    )
+
+    notification = (
+
+        "🔔 MANAGED BOT ACTIVITY\n\n"
+
+        f"🤖 Bot: {bot.name}\n"
+
+        f"🆔 Bot ID: #{bot.id}\n"
+
+        f"👤 User: {username_text}\n"
+
+        f"💬 Chat ID: {chat_id}\n\n"
+
+        "📩 Message:\n"
+
+        f"{text}"
+
+    )
+
+    send_message(
+
+        SUPER_ADMIN_ID,
+
+        notification
+
+    )
+
+
+# =========================================================
+# PROCESS MANAGED BOT UPDATE
+# =========================================================
+
+def process_managed_bot_update(
+
+    bot,
+    update
+
+):
+
+    print("")
+    print("==========================================")
+    print(
+        f"MANAGED BOT UPDATE #{bot.id}"
+    )
+    print(update)
+    print("==========================================")
+
+    # =====================================================
+    # NORMAL MESSAGE
+    # =====================================================
+
+    message = update.get(
+        "message"
+    )
+
+    if message:
+
+        chat = message.get(
+            "chat",
+            {}
+        )
+
+        chat_id = chat.get(
+            "id"
+        )
+
+        if not chat_id:
+
+            return
+
+        user = message.get(
+            "from",
+            {}
+        )
+
+        username = user.get(
+            "username",
+            ""
+        )
+
+        first_name = user.get(
+            "first_name",
+            ""
+        )
+
+        text = message.get(
+            "text",
+            ""
+        ).strip()
+
+        # -------------------------------------------------
+        # /START
+        # -------------------------------------------------
+
+        if text.startswith(
+            "/start"
+        ):
+
+            managed_bot_menu(
+
+                bot,
+
+                chat_id
+
+            )
+
+        # -------------------------------------------------
+        # /HELP
+        # -------------------------------------------------
+
+        elif text.startswith(
+            "/help"
+        ):
+
+            managed_bot_help(
+
+                bot,
+
+                chat_id
+
+            )
+
+        # -------------------------------------------------
+        # OTHER MESSAGE
+        # -------------------------------------------------
+
+        else:
+
+            managed_send_message(
+
+                bot,
+
+                chat_id,
+
+                "✅ Ujumbe wako umepokelewa.\n\n"
+
+                "Tafadhali tumia /start "
+                "kufungua menu kuu."
+
+            )
+
+        # -------------------------------------------------
+        # NOTIFY SUPER ADMIN
+        # -------------------------------------------------
+
+        notify_super_admin(
+
+            bot,
+
+            chat_id,
+
+            username,
+
+            text or "[message without text]"
+
+        )
+
+        return
+
+    # =====================================================
+    # CALLBACK QUERY
+    # =====================================================
+
+    callback = update.get(
+        "callback_query"
+    )
+
+    if not callback:
+
+        print(
+            "MANAGED UPDATE HAS NO MESSAGE "
+            "OR CALLBACK."
+        )
+
+        return
+
+    callback_id = callback.get(
+        "id"
+    )
+
+    data = callback.get(
+        "data",
+        ""
+    )
+
+    message = callback.get(
+        "message",
+        {}
+    )
+
+    chat = message.get(
+        "chat",
+        {}
+    )
+
+    chat_id = chat.get(
+        "id"
+    )
+
+    if not chat_id:
+
+        return
+
+    managed_telegram(
+
+        bot,
+
+        "answerCallbackQuery",
+
+        {
+            "callback_query_id":
+                callback_id
+        }
+
+    )
+
+    if data == "bot_menu":
+
+        managed_bot_menu(
+
+            bot,
+
+            chat_id
+
+        )
+
+    elif data == "bot_help":
+
+        managed_bot_help(
+
+            bot,
+
+            chat_id
+
+        )
+
+    else:
+
+        print(
+            "UNKNOWN MANAGED CALLBACK:",
+            data
+        )
+
+
+# =========================================================
 # SECURE BOT SETUP PAGE
 # =========================================================
 
@@ -676,23 +1188,33 @@ def setup_bot(setup_token):
     if not setup:
 
         return (
+
             "❌ Link hii si sahihi "
             "au imekwisha.",
+
             404
+
         )
 
     if setup.expires_at < datetime.utcnow():
 
-        db.session.delete(setup)
+        db.session.delete(
+            setup
+        )
 
         db.session.commit()
 
         return (
+
             "⏰ Link hii imekwisha muda wake."
+
             "<br><br>"
+
             "Rudi Telegram na utengeneze "
             "link mpya.",
+
             410
+
         )
 
     if request.method == "POST":
@@ -710,15 +1232,25 @@ def setup_bot(setup_token):
         if not name:
 
             return render_template(
+
                 "setup.html",
-                error="Tafadhali weka jina la bot."
+
+                error=(
+                    "Tafadhali weka jina la bot."
+                )
+
             )
 
         if not token:
 
             return render_template(
+
                 "setup.html",
-                error="Tafadhali weka Bot Token."
+
+                error=(
+                    "Tafadhali weka Bot Token."
+                )
+
             )
 
         bot_info = verify_bot_token(
@@ -732,8 +1264,10 @@ def setup_bot(setup_token):
                 "setup.html",
 
                 error=(
+
                     "❌ Bot Token si sahihi "
                     "au Telegram haikupokea."
+
                 )
 
             )
@@ -754,8 +1288,10 @@ def setup_bot(setup_token):
                 "setup.html",
 
                 error=(
+
                     "⚠️ Bot hii tayari "
                     "imeunganishwa."
+
                 )
 
             )
@@ -774,9 +1310,13 @@ def setup_bot(setup_token):
 
             )
 
-            db.session.add(bot)
+            db.session.add(
+                bot
+            )
 
-            db.session.delete(setup)
+            db.session.delete(
+                setup
+            )
 
             db.session.commit()
 
@@ -794,16 +1334,35 @@ def setup_bot(setup_token):
                 "setup.html",
 
                 error=(
+
                     "❌ Imeshindikana kuhifadhi "
                     "bot kwenye database."
+
                 )
 
             )
 
+        # -------------------------------------------------
+        # AUTOMATICALLY SET BOT WEBHOOK
+        # -------------------------------------------------
+
+        webhook_result = (
+            set_managed_bot_webhook(
+                bot
+            )
+        )
+
+        print(
+            "NEW BOT WEBHOOK RESULT:",
+            webhook_result
+        )
+
         username_text = (
 
             f"@{username}"
+
             if username
+
             else "-"
 
         )
@@ -822,7 +1381,10 @@ def setup_bot(setup_token):
             f"🆔 Bot ID: #{bot.id}\n\n"
 
             "🟢 Bot imeunganishwa "
-            "kwenye Super Admin."
+            "kwenye Super Admin.\n\n"
+
+            "🔗 Webhook imewekwa "
+            "moja kwa moja."
 
         )
 
@@ -837,6 +1399,655 @@ def setup_bot(setup_token):
     return render_template(
         "setup.html"
     )
+
+
+# =========================================================
+# MANAGED BOT WEBHOOK
+# =========================================================
+
+@app.route(
+    "/telegram/bot/<int:bot_id>/webhook",
+    methods=["POST"]
+)
+def managed_bot_webhook(bot_id):
+
+    print("")
+    print("==========================================")
+    print(
+        f"MANAGED BOT WEBHOOK #{bot_id}"
+    )
+    print("==========================================")
+
+    try:
+
+        bot = db.session.get(
+            ManagedBot,
+            bot_id
+        )
+
+    except Exception as error:
+
+        print(
+            "DATABASE LOOKUP ERROR:",
+            repr(error)
+        )
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": "Database error"
+
+        }), 500
+
+    if not bot:
+
+        print(
+            "MANAGED BOT NOT FOUND:",
+            bot_id
+        )
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": "Bot not found"
+
+        }), 404
+
+    update = request.get_json(
+        silent=True
+    )
+
+    if not update:
+
+        print(
+            "INVALID MANAGED BOT UPDATE"
+        )
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": "Invalid update"
+
+        }), 400
+
+    try:
+
+        process_managed_bot_update(
+
+            bot,
+
+            update
+
+        )
+
+    except Exception as error:
+
+        print(
+            "MANAGED BOT PROCESSING ERROR:",
+            repr(error)
+        )
+
+    return jsonify({
+
+        "ok": True
+
+    }), 200
+
+
+# =========================================================
+# ACTIVATE ALL CONNECTED BOT WEBHOOKS
+# =========================================================
+
+def activate_all_managed_bots():
+
+    try:
+
+        bots = ManagedBot.query.filter_by(
+            status="CONNECTED"
+        ).all()
+
+    except Exception as error:
+
+        print(
+            "COULD NOT LOAD MANAGED BOTS:",
+            repr(error)
+        )
+
+        return
+
+    if not bots:
+
+        print(
+            "NO MANAGED BOTS TO ACTIVATE."
+        )
+
+        return
+
+    print(
+        f"ACTIVATING {len(bots)} MANAGED BOT(S)"
+    )
+
+    for bot in bots:
+
+        try:
+
+            result = set_managed_bot_webhook(
+                bot
+            )
+
+            print(
+
+                f"BOT #{bot.id} "
+                f"WEBHOOK RESULT:",
+                result
+
+            )
+
+        except Exception as error:
+
+            print(
+
+                f"BOT #{bot.id} "
+                "WEBHOOK ERROR:",
+                repr(error)
+
+            )
+
+
+# =========================================================
+# SUPER ADMIN TELEGRAM UPDATE
+# =========================================================
+
+def process_update(update):
+
+    print("")
+    print("==========================================")
+    print("SUPER ADMIN TELEGRAM UPDATE")
+    print(update)
+    print("==========================================")
+
+    # =====================================================
+    # NORMAL MESSAGE
+    # =====================================================
+
+    message = update.get(
+        "message"
+    )
+
+    if message:
+
+        chat = message.get(
+            "chat",
+            {}
+        )
+
+        chat_id = chat.get(
+            "id"
+        )
+
+        if not chat_id:
+
+            return
+
+        if not is_super_admin(
+            chat_id
+        ):
+
+            send_message(
+
+                chat_id,
+
+                "⛔ Huna ruhusa ya kutumia "
+                "bot hii."
+
+            )
+
+            return
+
+        text = message.get(
+            "text",
+            ""
+        ).strip()
+
+        print(
+            "SUPER ADMIN MESSAGE:",
+            text
+        )
+
+        if text.startswith(
+            "/start"
+        ):
+
+            main_menu(
+                chat_id
+            )
+
+            return
+
+        if text.startswith(
+            "/menu"
+        ):
+
+            main_menu(
+                chat_id
+            )
+
+            return
+
+        if text.startswith(
+            "/bots"
+        ):
+
+            manage_bots(
+                chat_id
+            )
+
+            return
+
+        if text.startswith(
+            "/health"
+        ):
+
+            send_message(
+
+                chat_id,
+
+                "🟢 Super Admin Bot iko hai.\n\n"
+
+                f"🆔 Your ID: {chat_id}\n"
+
+                f"👑 Admin ID: "
+                f"{SUPER_ADMIN_ID}"
+
+            )
+
+            return
+
+        main_menu(
+            chat_id
+        )
+
+        return
+
+    # =====================================================
+    # CALLBACK QUERY
+    # =====================================================
+
+    callback = update.get(
+        "callback_query"
+    )
+
+    if not callback:
+
+        print(
+            "UPDATE HAS NO MESSAGE "
+            "OR CALLBACK."
+        )
+
+        return
+
+    callback_id = callback.get(
+        "id"
+    )
+
+    data = callback.get(
+        "data",
+        ""
+    )
+
+    message = callback.get(
+        "message",
+        {}
+    )
+
+    chat = message.get(
+        "chat",
+        {}
+    )
+
+    chat_id = chat.get(
+        "id"
+    )
+
+    if not chat_id:
+
+        return
+
+    if not is_super_admin(
+        chat_id
+    ):
+
+        answer_callback(
+
+            callback_id,
+
+            "⛔ Huna ruhusa."
+
+        )
+
+        return
+
+    answer_callback(
+        callback_id
+    )
+
+    if data == "main_menu":
+
+        main_menu(
+            chat_id
+        )
+
+    elif data == "manage_bots":
+
+        manage_bots(
+            chat_id
+        )
+
+    elif data == "add_bot":
+
+        add_bot(
+            chat_id
+        )
+
+    elif data == "dashboard":
+
+        dashboard(
+            chat_id
+        )
+
+    elif data == "notifications":
+
+        notifications(
+            chat_id
+        )
+
+    elif data == "settings":
+
+        settings(
+            chat_id
+        )
+
+    else:
+
+        print(
+            "UNKNOWN SUPER ADMIN CALLBACK:",
+            data
+        )
+
+
+# =========================================================
+# SUPER ADMIN WEBHOOK
+# =========================================================
+
+@app.route(
+    "/telegram/webhook",
+    methods=["POST"]
+)
+def telegram_webhook():
+
+    print("")
+    print("==========================================")
+    print("SUPER ADMIN WEBHOOK RECEIVED")
+    print("==========================================")
+
+    try:
+
+        update = request.get_json(
+            silent=True
+        )
+
+        if not update:
+
+            return jsonify({
+
+                "ok": False,
+
+                "error": "Invalid update"
+
+            }), 400
+
+        process_update(
+            update
+        )
+
+        return jsonify({
+
+            "ok": True
+
+        }), 200
+
+    except Exception as error:
+
+        print(
+            "SUPER ADMIN WEBHOOK ERROR:",
+            repr(error)
+        )
+
+        return jsonify({
+
+            "ok": True,
+
+            "processed": False
+
+        }), 200
+
+
+# =========================================================
+# SUPER ADMIN WEBHOOK GET TEST
+# =========================================================
+
+@app.route(
+    "/telegram/webhook",
+    methods=["GET"]
+)
+def webhook_get():
+
+    return jsonify({
+
+        "status": "ok",
+
+        "message": (
+            "Telegram webhook endpoint "
+            "is active."
+        ),
+
+        "method": "POST",
+
+        "endpoint": "/telegram/webhook"
+
+    })
+
+
+# =========================================================
+# SET SUPER ADMIN WEBHOOK
+# =========================================================
+
+def set_super_admin_webhook():
+
+    if not SUPER_ADMIN_TOKEN:
+
+        print(
+            "SUPER ADMIN WEBHOOK SKIPPED: "
+            "token missing."
+        )
+
+        return None
+
+    webhook_url = (
+        f"{APP_URL}/telegram/webhook"
+    )
+
+    print(
+        "SETTING SUPER ADMIN WEBHOOK:",
+        webhook_url
+    )
+
+    return telegram(
+
+        "setWebhook",
+
+        {
+            "url": webhook_url
+        }
+
+    )
+
+
+# =========================================================
+# WEBHOOK INFORMATION
+# =========================================================
+
+@app.route(
+    "/webhook-info",
+    methods=["GET"]
+)
+def webhook_info():
+
+    result = telegram(
+        "getWebhookInfo"
+    )
+
+    if result is None:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": (
+                "Could not contact Telegram."
+            )
+
+        }), 500
+
+    return jsonify(
+        result
+    )
+
+
+# =========================================================
+# BOT INFORMATION
+# =========================================================
+
+@app.route(
+    "/bot-info",
+    methods=["GET"]
+)
+def bot_info():
+
+    result = telegram(
+        "getMe"
+    )
+
+    if result is None:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": (
+                "Telegram token missing "
+                "or Telegram API unavailable."
+            )
+
+        }), 500
+
+    return jsonify(
+        result
+    )
+
+
+# =========================================================
+# MANAGED BOT INFORMATION
+# =========================================================
+
+@app.route(
+    "/managed-bot/<int:bot_id>/webhook-info",
+    methods=["GET"]
+)
+def managed_bot_webhook_info(bot_id):
+
+    bot = db.session.get(
+        ManagedBot,
+        bot_id
+    )
+
+    if not bot:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": "Bot not found"
+
+        }), 404
+
+    result = get_managed_bot_webhook_info(
+        bot
+    )
+
+    if result is None:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": (
+                "Could not contact Telegram."
+            )
+
+        }), 500
+
+    return jsonify(
+        result
+    )
+
+
+# =========================================================
+# MANAGED BOT TEST PAGE
+# =========================================================
+
+@app.route(
+    "/managed-bot/<int:bot_id>",
+    methods=["GET"]
+)
+def managed_bot_page(bot_id):
+
+    bot = db.session.get(
+        ManagedBot,
+        bot_id
+    )
+
+    if not bot:
+
+        return jsonify({
+
+            "ok": False,
+
+            "error": "Bot not found"
+
+        }), 404
+
+    return jsonify({
+
+        "ok": True,
+
+        "bot_id": bot.id,
+
+        "name": bot.name,
+
+        "username": bot.username,
+
+        "status": bot.status,
+
+        "webhook": (
+            f"{APP_URL}/telegram/bot/"
+            f"{bot.id}/webhook"
+        )
+
+    })
 
 
 # =========================================================
@@ -860,7 +2071,7 @@ def dashboard(chat_id):
     except Exception as error:
 
         print(
-            "DASHBOARD ERROR:",
+            "DASHBOARD DATABASE ERROR:",
             repr(error)
         )
 
@@ -938,6 +2149,7 @@ def notifications(chat_id):
         chat_id,
 
         "🔔 NOTIFICATIONS\n\n"
+
         "Hakuna notification mpya kwa sasa.",
 
         keyboard
@@ -994,450 +2206,7 @@ def settings(chat_id):
 
 
 # =========================================================
-# PROCESS TELEGRAM UPDATE
-# =========================================================
-
-def process_update(update):
-
-    print("==========================================")
-    print("TELEGRAM UPDATE RECEIVED")
-    print(update)
-    print("==========================================")
-
-    # =====================================================
-    # NORMAL MESSAGE
-    # =====================================================
-
-    message = update.get(
-        "message"
-    )
-
-    if message:
-
-        chat = message.get(
-            "chat",
-            {}
-        )
-
-        chat_id = chat.get(
-            "id"
-        )
-
-        if not chat_id:
-
-            print(
-                "MESSAGE ERROR: chat_id missing"
-            )
-
-            return
-
-        print(
-            "MESSAGE CHAT ID:",
-            chat_id
-        )
-
-        print(
-            "CONFIGURED ADMIN ID:",
-            SUPER_ADMIN_ID
-        )
-
-        if not is_super_admin(
-            chat_id
-        ):
-
-            print(
-                "UNAUTHORIZED USER:",
-                chat_id
-            )
-
-            send_message(
-
-                chat_id,
-
-                "⛔ Huna ruhusa ya kutumia "
-                "bot hii.\n\n"
-
-                "Admin ID iliyopokelewa:\n"
-                f"{chat_id}"
-
-            )
-
-            return
-
-        text = message.get(
-            "text",
-            ""
-        ).strip()
-
-        print(
-            "MESSAGE TEXT:",
-            text
-        )
-
-        if text.startswith("/start"):
-
-            print(
-                "COMMAND: /start"
-            )
-
-            main_menu(
-                chat_id
-            )
-
-            return
-
-        if text.startswith("/menu"):
-
-            print(
-                "COMMAND: /menu"
-            )
-
-            main_menu(
-                chat_id
-            )
-
-            return
-
-        if text.startswith("/bots"):
-
-            print(
-                "COMMAND: /bots"
-            )
-
-            manage_bots(
-                chat_id
-            )
-
-            return
-
-        if text.startswith("/health"):
-
-            print(
-                "COMMAND: /health"
-            )
-
-            send_message(
-
-                chat_id,
-
-                "🟢 Super Admin Bot iko hai.\n\n"
-                f"🆔 Your ID: {chat_id}\n"
-                f"👑 Admin ID: {SUPER_ADMIN_ID}"
-
-            )
-
-            return
-
-        main_menu(
-            chat_id
-        )
-
-        return
-
-    # =====================================================
-    # CALLBACK QUERY
-    # =====================================================
-
-    callback = update.get(
-        "callback_query"
-    )
-
-    if not callback:
-
-        print(
-            "UPDATE HAS NO MESSAGE OR CALLBACK"
-        )
-
-        return
-
-    callback_id = callback.get(
-        "id"
-    )
-
-    data = callback.get(
-        "data",
-        ""
-    )
-
-    message = callback.get(
-        "message",
-        {}
-    )
-
-    chat = message.get(
-        "chat",
-        {}
-    )
-
-    chat_id = chat.get(
-        "id"
-    )
-
-    print(
-        "CALLBACK:",
-        data,
-        "CHAT:",
-        chat_id
-    )
-
-    if not chat_id:
-
-        return
-
-    if not is_super_admin(
-        chat_id
-    ):
-
-        answer_callback(
-            callback_id,
-            "⛔ Huna ruhusa."
-        )
-
-        return
-
-    answer_callback(
-        callback_id
-    )
-
-    if data == "main_menu":
-
-        main_menu(
-            chat_id
-        )
-
-    elif data == "manage_bots":
-
-        manage_bots(
-            chat_id
-        )
-
-    elif data == "add_bot":
-
-        add_bot(
-            chat_id
-        )
-
-    elif data == "dashboard":
-
-        dashboard(
-            chat_id
-        )
-
-    elif data == "notifications":
-
-        notifications(
-            chat_id
-        )
-
-    elif data == "settings":
-
-        settings(
-            chat_id
-        )
-
-    else:
-
-        print(
-            "UNKNOWN CALLBACK:",
-            data
-        )
-
-
-# =========================================================
-# TELEGRAM WEBHOOK
-# =========================================================
-
-@app.route(
-    "/telegram/webhook",
-    methods=["POST"]
-)
-def telegram_webhook():
-
-    print("==========================================")
-    print("WEBHOOK REQUEST RECEIVED")
-    print("==========================================")
-
-    try:
-
-        update = request.get_json(
-            silent=True
-        )
-
-        if not update:
-
-            print(
-                "WEBHOOK ERROR: "
-                "No JSON update received."
-            )
-
-            return jsonify({
-
-                "ok": False,
-
-                "error": "Invalid update"
-
-            }), 400
-
-        print(
-            "WEBHOOK UPDATE:",
-            update
-        )
-
-        process_update(
-            update
-        )
-
-        return jsonify({
-
-            "ok": True
-
-        }), 200
-
-    except Exception as error:
-
-        print(
-            "WEBHOOK FATAL ERROR:",
-            repr(error)
-        )
-
-        # Return 200 so Telegram does not
-        # continuously retry the same update.
-        return jsonify({
-
-            "ok": True,
-
-            "processed": False,
-
-            "error": "Internal processing error"
-
-        }), 200
-
-
-# =========================================================
-# WEBHOOK TEST
-# =========================================================
-
-@app.route(
-    "/telegram/webhook",
-    methods=["GET"]
-)
-def webhook_get():
-
-    return jsonify({
-
-        "status": "ok",
-
-        "message": (
-            "Telegram webhook endpoint is active."
-        ),
-
-        "method": "POST",
-
-        "endpoint": "/telegram/webhook"
-
-    })
-
-
-# =========================================================
-# SET WEBHOOK
-# =========================================================
-
-def set_telegram_webhook():
-
-    if not SUPER_ADMIN_TOKEN:
-
-        print(
-            "WEBHOOK SETUP SKIPPED: "
-            "SUPER_ADMIN_TOKEN missing."
-        )
-
-        return None
-
-    webhook_url = (
-        f"{APP_URL}/telegram/webhook"
-    )
-
-    print(
-        "SETTING TELEGRAM WEBHOOK:",
-        webhook_url
-    )
-
-    return telegram(
-
-        "setWebhook",
-
-        {
-            "url": webhook_url
-        }
-
-    )
-
-
-# =========================================================
-# WEBHOOK INFO
-# =========================================================
-
-@app.route(
-    "/webhook-info",
-    methods=["GET"]
-)
-def webhook_info():
-
-    result = telegram(
-        "getWebhookInfo"
-    )
-
-    if result is None:
-
-        return jsonify({
-
-            "ok": False,
-
-            "error": (
-                "Could not contact Telegram."
-            )
-
-        }), 500
-
-    return jsonify(
-        result
-    )
-
-
-# =========================================================
-# BOT INFORMATION
-# =========================================================
-
-@app.route(
-    "/bot-info",
-    methods=["GET"]
-)
-def bot_info():
-
-    result = telegram(
-        "getMe"
-    )
-
-    if result is None:
-
-        return jsonify({
-
-            "ok": False,
-
-            "error": (
-                "Telegram token missing "
-                "or Telegram API unavailable."
-            )
-
-        }), 500
-
-    return jsonify(
-        result
-    )
-
-
-# =========================================================
-# HOME PAGE
+# HOME
 # =========================================================
 
 @app.route("/")
@@ -1445,122 +2214,118 @@ def home():
 
     return """
 
-    <!DOCTYPE html>
+<!DOCTYPE html>
 
-    <html lang="en">
+<html lang="en">
 
-    <head>
+<head>
 
-        <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-        <meta name="viewport"
-              content="width=device-width,initial-scale=1.0">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1.0">
 
-        <title>MKOPO Super Admin</title>
+<title>MKOPO Super Admin</title>
 
-        <style>
+<style>
 
-            body {
+body {
 
-                margin:0;
-                padding:30px;
+    margin:0;
+    padding:30px;
 
-                background:#101820;
-                color:white;
+    background:#101820;
+    color:white;
 
-                font-family:Arial,sans-serif;
+    font-family:Arial,sans-serif;
 
-                text-align:center;
+    text-align:center;
 
-            }
+}
 
-            .card {
+.card {
 
-                max-width:600px;
+    max-width:650px;
 
-                margin:60px auto;
+    margin:60px auto;
 
-                background:#1d2935;
+    background:#1d2935;
 
-                padding:35px;
+    padding:35px;
 
-                border-radius:20px;
+    border-radius:20px;
 
-            }
+}
 
-            h1 {
+.ok {
 
-                margin-bottom:10px;
+    color:#35d07f;
 
-            }
+    font-weight:bold;
 
-            .ok {
+}
 
-                color:#35d07f;
+a {
 
-                font-weight:bold;
+    color:#35d07f;
 
-            }
+}
 
-            a {
+</style>
 
-                color:#35d07f;
+</head>
 
-            }
+<body>
 
-        </style>
+<div class="card">
 
-    </head>
+<h1>👑 MKOPO Super Admin</h1>
 
-    <body>
+<p class="ok">
+🟢 System is running
+</p>
 
-        <div class="card">
+<p>
+Telegram Super Admin system is online.
+</p>
 
-            <h1>
-                👑 MKOPO Super Admin
-            </h1>
+<p>
+Super Admin webhook:
+<strong>/telegram/webhook</strong>
+</p>
 
-            <p class="ok">
-                🟢 System is running
-            </p>
+<p>
+Managed bot webhook:
+<strong>/telegram/bot/&lt;bot_id&gt;/webhook</strong>
+</p>
 
-            <p>
-                Telegram Super Admin system
-                is online.
-            </p>
+<hr>
 
-            <p>
-                Webhook:
-                <strong>
-                    /telegram/webhook
-                </strong>
-            </p>
+<p>
+<a href="/health">
+Health Check
+</a>
+</p>
 
-            <p>
-                <a href="/health">
-                    Health Check
-                </a>
-            </p>
+<p>
+<a href="/webhook-info">
+Super Admin Webhook Info
+</a>
+</p>
 
-            <p>
-                <a href="/webhook-info">
-                    Webhook Information
-                </a>
-            </p>
+<p>
+<a href="/bot-info">
+Super Admin Bot Info
+</a>
+</p>
 
-            <p>
-                <a href="/bot-info">
-                    Bot Information
-                </a>
-            </p>
+</div>
 
-        </div>
+</body>
 
-    </body>
+</html>
 
-    </html>
-
-    """
+"""
 
 
 # =========================================================
@@ -1572,6 +2337,14 @@ def home():
     methods=["GET"]
 )
 def health():
+
+    try:
+
+        bot_count = ManagedBot.query.count()
+
+    except Exception:
+
+        bot_count = None
 
     return jsonify({
 
@@ -1591,13 +2364,15 @@ def health():
 
         "database_configured": bool(
             DATABASE_URL
-        )
+        ),
+
+        "managed_bots": bot_count
 
     })
 
 
 # =========================================================
-# ERROR HANDLERS
+# 404
 # =========================================================
 
 @app.errorhandler(404)
@@ -1612,6 +2387,10 @@ def not_found(error):
     }), 404
 
 
+# =========================================================
+# 500
+# =========================================================
+
 @app.errorhandler(500)
 def server_error(error):
 
@@ -1625,14 +2404,19 @@ def server_error(error):
 
 
 # =========================================================
-# STARTUP
+# APPLICATION STARTUP
 # =========================================================
 
 def startup():
 
+    print("")
     print("==========================================")
     print("APPLICATION STARTUP")
     print("==========================================")
+
+    # -----------------------------------------------------
+    # SUPER ADMIN TOKEN
+    # -----------------------------------------------------
 
     if not SUPER_ADMIN_TOKEN:
 
@@ -1641,12 +2425,20 @@ def startup():
             "IS NOT CONFIGURED."
         )
 
+    # -----------------------------------------------------
+    # SUPER ADMIN ID
+    # -----------------------------------------------------
+
     if not SUPER_ADMIN_ID:
 
         print(
             "WARNING: SUPER_ADMIN_ID "
             "IS NOT CONFIGURED."
         )
+
+    # -----------------------------------------------------
+    # SUPER ADMIN BOT
+    # -----------------------------------------------------
 
     if SUPER_ADMIN_TOKEN:
 
@@ -1656,21 +2448,40 @@ def startup():
                 "getMe"
             )
 
-            if result and result.get("ok"):
+            if result and result.get(
+                "ok"
+            ):
 
-                bot = result.get(
+                bot_info_data = result.get(
                     "result",
                     {}
                 )
 
                 print(
                     "SUPER ADMIN BOT:",
-                    bot.get("first_name")
+                    bot_info_data.get(
+                        "first_name"
+                    )
                 )
 
                 print(
                     "BOT USERNAME:",
-                    bot.get("username")
+                    bot_info_data.get(
+                        "username"
+                    )
+                )
+
+                # -----------------------------------------
+                # SET SUPER ADMIN WEBHOOK
+                # -----------------------------------------
+
+                webhook_result = (
+                    set_super_admin_webhook()
+                )
+
+                print(
+                    "SUPER ADMIN WEBHOOK RESULT:",
+                    webhook_result
                 )
 
             else:
@@ -1679,28 +2490,32 @@ def startup():
                     "WARNING: Telegram getMe failed."
                 )
 
-            # Automatically make sure the
-            # Render webhook is correct.
-
-            webhook_result = set_telegram_webhook()
-
-            if webhook_result:
-
-                print(
-                    "WEBHOOK SETUP RESULT:",
-                    webhook_result
-                )
-
         except Exception as error:
 
             print(
-                "STARTUP TELEGRAM ERROR:",
+                "SUPER ADMIN STARTUP ERROR:",
                 repr(error)
             )
+
+    # -----------------------------------------------------
+    # ACTIVATE EXISTING MANAGED BOTS
+    # -----------------------------------------------------
+
+    try:
+
+        activate_all_managed_bots()
+
+    except Exception as error:
+
+        print(
+            "MANAGED BOT STARTUP ERROR:",
+            repr(error)
+        )
 
     print("==========================================")
     print("APPLICATION READY")
     print("==========================================")
+    print("")
 
 
 # =========================================================
