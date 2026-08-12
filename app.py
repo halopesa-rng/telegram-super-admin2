@@ -1,14 +1,22 @@
 import os
 import secrets
-import requests
+from datetime import datetime, timedelta
 
-from flask import Flask, request
+import requests
+from flask import (
+    Flask,
+    request,
+    session,
+    render_template,
+    redirect,
+    url_for
+)
 from flask_sqlalchemy import SQLAlchemy
 
 
-# =========================================================
-# APP CONFIGURATION
-# =========================================================
+# ============================================================
+# APP
+# ============================================================
 
 app = Flask(__name__)
 
@@ -35,12 +43,37 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
-# =========================================================
-# DATABASE
-# =========================================================
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
+SUPER_ADMIN_TOKEN = os.environ.get(
+    "TELEGRAM_BOT_TOKEN"
+)
+
+ADMIN_CHAT_ID = str(
+    os.environ.get(
+        "ADMIN_CHAT_ID",
+        ""
+    )
+)
+
+APP_URL = os.environ.get(
+    "APP_URL",
+    "https://telegram-super-admin2.onrender.com"
+).rstrip("/")
+
+
+# ============================================================
+# DATABASE MODELS
+# ============================================================
 
 class ManagedBot(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
 
     name = db.Column(
         db.String(150),
@@ -68,24 +101,27 @@ class ManagedBot(db.Model):
     )
 
 
-class AdminState(db.Model):
+class SetupSession(db.Model):
+
     id = db.Column(
         db.Integer,
         primary_key=True
     )
 
-    chat_id = db.Column(
-        db.String(100),
+    token = db.Column(
+        db.String(200),
         unique=True,
         nullable=False
     )
 
-    state = db.Column(
-        db.String(50)
+    chat_id = db.Column(
+        db.String(100),
+        nullable=False
     )
 
-    bot_name = db.Column(
-        db.String(150)
+    expires_at = db.Column(
+        db.DateTime,
+        nullable=False
     )
 
 
@@ -93,25 +129,9 @@ with app.app_context():
     db.create_all()
 
 
-# =========================================================
-# ENVIRONMENT
-# =========================================================
-
-SUPER_ADMIN_TOKEN = os.environ.get(
-    "TELEGRAM_BOT_TOKEN"
-)
-
-ADMIN_CHAT_ID = str(
-    os.environ.get(
-        "ADMIN_CHAT_ID",
-        ""
-    )
-)
-
-
-# =========================================================
+# ============================================================
 # TELEGRAM API
-# =========================================================
+# ============================================================
 
 def telegram(method, data=None):
 
@@ -119,7 +139,7 @@ def telegram(method, data=None):
         return None
 
     url = (
-        f"https://api.telegram.org/"
+        "https://api.telegram.org/"
         f"bot{SUPER_ADMIN_TOKEN}/{method}"
     )
 
@@ -134,15 +154,18 @@ def telegram(method, data=None):
         return response.json()
 
     except requests.RequestException:
-
         return None
 
 
-# =========================================================
-# SEND MESSAGE
-# =========================================================
+# ============================================================
+# SEND TELEGRAM MESSAGE
+# ============================================================
 
-def send_message(chat_id, text, keyboard=None):
+def send_message(
+    chat_id,
+    text,
+    keyboard=None
+):
 
     payload = {
         "chat_id": chat_id,
@@ -158,9 +181,9 @@ def send_message(chat_id, text, keyboard=None):
     )
 
 
-# =========================================================
+# ============================================================
 # MAIN MENU
-# =========================================================
+# ============================================================
 
 def main_menu(chat_id):
 
@@ -200,15 +223,19 @@ def main_menu(chat_id):
 
     send_message(
         chat_id,
+
         "👑 SUPER ADMIN\n\n"
-        "Chagua huduma kutoka kwenye menu.",
+        "Karibu kwenye mfumo mkuu wa "
+        "kusimamia bots zako.\n\n"
+        "Chagua huduma:",
+
         keyboard
     )
 
 
-# =========================================================
+# ============================================================
 # MANAGE BOTS
-# =========================================================
+# ============================================================
 
 def manage_bots(chat_id):
 
@@ -219,22 +246,29 @@ def manage_bots(chat_id):
     if not bots:
 
         text = (
-            "🤖 CONNECTED BOTS\n\n"
+            "🤖 MANAGE BOTS\n\n"
             "Hakuna bot iliyounganishwa bado."
         )
 
     else:
 
         lines = [
-            "🤖 CONNECTED BOTS\n"
+            "🤖 MANAGE BOTS\n",
+            "Bots zilizounganishwa:\n"
         ]
 
         for bot in bots:
 
+            username = (
+                f"@{bot.username}"
+                if bot.username
+                else "Username haijapatikana"
+            )
+
             lines.append(
                 f"🆔 #{bot.id}\n"
                 f"🤖 {bot.name}\n"
-                f"👤 @{bot.username or '-'}\n"
+                f"👤 {username}\n"
                 f"🟢 {bot.status}\n"
             )
 
@@ -274,75 +308,105 @@ def manage_bots(chat_id):
     )
 
 
-# =========================================================
-# ADD BOT - STEP 1
-# =========================================================
+# ============================================================
+# CREATE SECURE ADD-BOT SESSION
+# ============================================================
+
+def create_setup_session(chat_id):
+
+    # Remove old sessions for this admin
+    old_sessions = SetupSession.query.filter_by(
+        chat_id=str(chat_id)
+    ).all()
+
+    for old in old_sessions:
+        db.session.delete(old)
+
+    setup_token = secrets.token_urlsafe(32)
+
+    expires = datetime.utcnow() + timedelta(
+        minutes=10
+    )
+
+    setup = SetupSession(
+        token=setup_token,
+        chat_id=str(chat_id),
+        expires_at=expires
+    )
+
+    db.session.add(setup)
+    db.session.commit()
+
+    return setup_token
+
+
+# ============================================================
+# START ADD BOT
+# ============================================================
 
 def start_add_bot(chat_id):
 
-    state = AdminState.query.filter_by(
-        chat_id=str(chat_id)
-    ).first()
+    setup_token = create_setup_session(
+        chat_id
+    )
 
-    if not state:
+    setup_url = (
+        f"{APP_URL}/admin/add-bot"
+        f"?key={setup_token}"
+    )
 
-        state = AdminState(
-            chat_id=str(chat_id)
-        )
+    keyboard = {
+        "inline_keyboard": [
 
-        db.session.add(state)
+            [
+                {
+                    "text": "🔐 Open Secure Registration",
+                    "url": setup_url
+                }
+            ],
 
-    state.state = "WAITING_BOT_NAME"
-    state.bot_name = None
+            [
+                {
+                    "text": "⬅️ Manage Bots",
+                    "callback_data": "manage_bots"
+                }
+            ]
 
-    db.session.commit()
+        ]
+    }
 
     send_message(
+
         chat_id,
 
         "➕ ADD NEW BOT\n\n"
-        "Hatua ya 1/2\n\n"
-        "Tuma jina la bot unayotaka kuunganisha.\n\n"
-        "Mfano:\n"
-        "HaloPesa MKOPO"
+
+        "Tutatumia ukurasa salama wa usajili "
+        "badala ya kuweka BotFather token "
+        "kwenye Telegram chat.\n\n"
+
+        "🔐 Link hii ni ya muda mfupi na "
+        "itaisha baada ya dakika 10.\n\n"
+
+        "Hatua:\n"
+        "1️⃣ Fungua registration page\n"
+        "2️⃣ Weka jina la bot\n"
+        "3️⃣ Weka BotFather token\n"
+        "4️⃣ Mfumo utathibitisha token\n"
+        "5️⃣ Bot itaongezwa kwenye Super Admin",
+
+        keyboard
     )
 
 
-# =========================================================
-# ADD BOT - STEP 2
-# =========================================================
+# ============================================================
+# VERIFY TELEGRAM BOT TOKEN
+# ============================================================
 
-def ask_for_token(chat_id, bot_name):
+def verify_bot_token(token):
 
-    state = AdminState.query.filter_by(
-        chat_id=str(chat_id)
-    ).first()
-
-    if not state:
-        return
-
-    state.state = "WAITING_BOT_TOKEN"
-    state.bot_name = bot_name
-
-    db.session.commit()
-
-    send_message(
-        chat_id,
-
-        "➕ ADD NEW BOT\n\n"
-        "Hatua ya 2/2\n\n"
-        f"Jina: {bot_name}\n\n"
-        "Sasa tuma BotFather token ya bot hiyo.\n\n"
-        "⚠️ Usitume token ya Super Admin.\n"
-        "Tuma token ya bot unayotaka kuunganisha."
-    )
-
-
-# =========================================================
-# VERIFY BOT TOKEN
-# =========================================================
-
-def check_bot_token(token):
+    if not token:
+        return None
 
     try:
 
@@ -354,69 +418,181 @@ def check_bot_token(token):
         return response.json()
 
     except requests.RequestException:
-
         return None
 
 
-# =========================================================
-# SAVE BOT
-# =========================================================
+# ============================================================
+# SECURE ADD BOT PAGE
+# ============================================================
 
-def save_managed_bot(chat_id, token):
+@app.get("/admin/add-bot")
+def add_bot_page():
 
-    state = AdminState.query.filter_by(
-        chat_id=str(chat_id)
+    key = request.args.get(
+        "key",
+        ""
+    ).strip()
+
+    if not key:
+
+        return (
+            "<h2>Link ya usajili haipo.</h2>"
+            "<p>Rudi Telegram Super Admin "
+            "na uchague Add Bot tena.</p>"
+        ), 400
+
+    setup = SetupSession.query.filter_by(
+        token=key
     ).first()
 
-    if not state:
-        return
+    if not setup:
 
-    result = check_bot_token(token)
+        return (
+            "<h2>Link si sahihi.</h2>"
+            "<p>Tafadhali tengeneza link mpya "
+            "kupitia Super Admin.</p>"
+        ), 403
+
+    if datetime.utcnow() > setup.expires_at:
+
+        db.session.delete(setup)
+        db.session.commit()
+
+        return (
+            "<h2>Link imekwisha muda.</h2>"
+            "<p>Rudi Telegram na utengeneze "
+            "link mpya.</p>"
+        ), 410
+
+    # Save setup key in secure server session.
+    session["bot_setup_key"] = key
+
+    return render_template(
+        "add_bot.html"
+    )
+
+
+# ============================================================
+# REGISTER BOT
+# ============================================================
+
+@app.post("/admin/add-bot")
+def register_bot():
+
+    key = session.get(
+        "bot_setup_key"
+    )
+
+    if not key:
+
+        return (
+            "<h2>Session imekwisha.</h2>"
+            "<p>Rudi Telegram Super Admin "
+            "na uchague Add Bot tena.</p>"
+        ), 403
+
+    setup = SetupSession.query.filter_by(
+        token=key
+    ).first()
+
+    if not setup:
+
+        session.pop(
+            "bot_setup_key",
+            None
+        )
+
+        return (
+            "<h2>Registration session si sahihi.</h2>"
+        ), 403
+
+    if datetime.utcnow() > setup.expires_at:
+
+        db.session.delete(setup)
+        db.session.commit()
+
+        session.pop(
+            "bot_setup_key",
+            None
+        )
+
+        return (
+            "<h2>Registration session imekwisha.</h2>"
+            "<p>Rudi Telegram na uchague Add Bot tena.</p>"
+        ), 410
+
+    name = request.form.get(
+        "name",
+        ""
+    ).strip()
+
+    token = request.form.get(
+        "token",
+        ""
+    ).strip()
+
+    username = request.form.get(
+        "username",
+        ""
+    ).strip()
+
+    if not name or not token:
+
+        return (
+            "<h2>Jaza sehemu zote muhimu.</h2>"
+            "<p>Jina na BotFather token vinahitajika.</p>"
+        ), 400
+
+    # Verify token with Telegram
+    result = verify_bot_token(
+        token
+    )
 
     if not result or not result.get("ok"):
 
-        send_message(
-            chat_id,
-
-            "❌ TOKEN SI SAHIHI\n\n"
-            "BotFather token haikuthibitishwa.\n\n"
-            "Tafadhali tuma token sahihi tena."
-        )
-
-        return
+        return (
+            "<h2>❌ Bot token si sahihi.</h2>"
+            "<p>Rudi nyuma na uweke "
+            "BotFather token sahihi.</p>"
+        ), 400
 
     bot_info = result.get(
         "result",
         {}
     )
 
-    username = bot_info.get(
+    telegram_username = bot_info.get(
         "username"
     )
 
+    # Use Telegram username if the form was blank
+    if not username:
+
+        username = (
+            telegram_username or ""
+        )
+
+    # Check whether token already exists
     existing = ManagedBot.query.filter_by(
         token=token
     ).first()
 
     if existing:
 
-        send_message(
-            chat_id,
-
-            "⚠️ BOT HII IMESHAUNGANISHWA.\n\n"
-            f"🤖 {existing.name}\n"
-            f"👤 @{existing.username or '-'}"
+        session.pop(
+            "bot_setup_key",
+            None
         )
 
-        state.state = None
-        state.bot_name = None
-
-        db.session.commit()
-
-        return
+        return (
+            "<h2>⚠️ Bot tayari imeunganishwa.</h2>"
+            f"<p>{existing.name}</p>"
+            f"<p>@{existing.username or '-'}</p>"
+            "<p>Rudi kwenye Super Admin.</p>"
+        ), 409
 
     bot = ManagedBot(
-        name=state.bot_name,
+        name=name,
         username=username,
         token=token,
         status="CONNECTED"
@@ -424,180 +600,135 @@ def save_managed_bot(chat_id, token):
 
     db.session.add(bot)
 
-    state.state = None
-    state.bot_name = None
+    # One-time setup session
+    db.session.delete(setup)
 
     db.session.commit()
 
-    send_message(
-        chat_id,
+    session.pop(
+        "bot_setup_key",
+        None
+    )
 
-        "✅ BOT CONNECTED\n\n"
+    # Send confirmation to Super Admin
+    send_message(
+
+        setup.chat_id,
+
+        "✅ BOT CONNECTED!\n\n"
+
         f"🤖 Jina: {bot.name}\n"
         f"👤 Username: @{bot.username or '-'}\n"
-        "🟢 Status: CONNECTED\n\n"
-        "Bot imehifadhiwa kwenye Super Admin."
+        f"🆔 ID: #{bot.id}\n"
+        f"🟢 Status: {bot.status}\n\n"
+
+        "Bot imeongezwa kwenye Super Admin."
     )
 
-    manage_bots(chat_id)
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport"
+              content="width=device-width,initial-scale=1">
+        <title>Bot Connected</title>
 
-
-# =========================================================
-# START COMMAND
-# =========================================================
-
-def handle_start(chat_id):
-
-    main_menu(chat_id)
-
-
-# =========================================================
-# TEXT MESSAGE HANDLER
-# =========================================================
-
-def handle_text(chat_id, text):
-
-    state = AdminState.query.filter_by(
-        chat_id=str(chat_id)
-    ).first()
-
-    if state and state.state == "WAITING_BOT_NAME":
-
-        bot_name = text.strip()
-
-        if len(bot_name) < 2:
-
-            send_message(
-                chat_id,
-                "❌ Jina ni fupi sana. "
-                "Tafadhali tuma jina la bot."
-            )
-
-            return
-
-        ask_for_token(
-            chat_id,
-            bot_name
-        )
-
-        return
-
-    if state and state.state == "WAITING_BOT_TOKEN":
-
-        token = text.strip()
-
-        if len(token) < 20:
-
-            send_message(
-                chat_id,
-                "❌ Token haionekani kuwa sahihi."
-            )
-
-            return
-
-        save_managed_bot(
-            chat_id,
-            token
-        )
-
-        return
-
-
-# =========================================================
-# CALLBACK HANDLER
-# =========================================================
-
-def handle_callback(callback):
-
-    callback_id = callback.get(
-        "id"
-    )
-
-    data = callback.get(
-        "data",
-        ""
-    )
-
-    message = callback.get(
-        "message",
-        {}
-    )
-
-    chat = message.get(
-        "chat",
-        {}
-    )
-
-    chat_id = str(
-        chat.get(
-            "id",
-            ""
-        )
-    )
-
-    if ADMIN_CHAT_ID and chat_id != ADMIN_CHAT_ID:
-
-        telegram(
-            "answerCallbackQuery",
-            {
-                "callback_query_id": callback_id,
-                "text": "Huna ruhusa."
+        <style>
+            body {
+                margin: 0;
+                font-family: Arial, sans-serif;
+                background: #0f1720;
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                padding: 20px;
             }
-        )
 
-        return
+            .card {
+                width: 100%;
+                max-width: 500px;
+                background: #192533;
+                border-radius: 20px;
+                padding: 30px;
+                text-align: center;
+                box-shadow: 0 10px 40px #0008;
+            }
 
-    if data == "manage_bots":
+            .success {
+                font-size: 60px;
+            }
 
-        manage_bots(chat_id)
+            h1 {
+                color: #22c55e;
+            }
 
-    elif data == "add_bot":
+            .bot {
+                background: #101923;
+                padding: 18px;
+                border-radius: 12px;
+                margin: 20px 0;
+                text-align: left;
+            }
 
-        start_add_bot(chat_id)
+            a {
+                display: block;
+                background: #1683ff;
+                color: white;
+                text-decoration: none;
+                padding: 14px;
+                border-radius: 10px;
+                font-weight: bold;
+            }
+        </style>
+    </head>
 
-    elif data == "main_menu":
+    <body>
 
-        main_menu(chat_id)
+        <div class="card">
 
-    elif data == "dashboard":
+            <div class="success">✅</div>
 
-        send_message(
-            chat_id,
+            <h1>Bot Connected!</h1>
 
-            "📊 DASHBOARD\n\n"
-            f"🤖 Connected bots: "
-            f"{ManagedBot.query.count()}"
-        )
+            <p>
+                Bot yako imeunganishwa
+                kwa mafanikio.
+            </p>
 
-    elif data == "notifications":
+            <div class="bot">
 
-        send_message(
-            chat_id,
+                <strong>🤖 Bot Name</strong><br>
+                """ + bot.name + """
 
-            "🔔 NOTIFICATIONS\n\n"
-            "Hakuna notification mpya."
-        )
+                <br><br>
 
-    elif data == "settings":
+                <strong>👤 Username</strong><br>
+                @""" + (bot.username or "-") + """
 
-        send_message(
-            chat_id,
+                <br><br>
 
-            "⚙️ SETTINGS\n\n"
-            "Super Admin settings."
-        )
+                <strong>🟢 Status</strong><br>
+                CONNECTED
 
-    telegram(
-        "answerCallbackQuery",
-        {
-            "callback_query_id": callback_id
-        }
-    )
+            </div>
+
+            <a href="/">
+                Return to Super Admin
+            </a>
+
+        </div>
+
+    </body>
+    </html>
+    """
 
 
-# =========================================================
+# ============================================================
 # TELEGRAM WEBHOOK
-# =========================================================
+# ============================================================
 
 @app.post("/telegram/webhook")
 def telegram_webhook():
@@ -606,19 +737,131 @@ def telegram_webhook():
         silent=True
     ) or {}
 
+    # --------------------------------------------------------
+    # CALLBACK QUERY
+    # --------------------------------------------------------
+
     callback = update.get(
         "callback_query"
     )
 
     if callback:
 
-        handle_callback(
-            callback
+        callback_id = callback.get(
+            "id"
+        )
+
+        data = callback.get(
+            "data",
+            ""
+        )
+
+        message = callback.get(
+            "message",
+            {}
+        )
+
+        chat = message.get(
+            "chat",
+            {}
+        )
+
+        chat_id = str(
+            chat.get(
+                "id",
+                ""
+            )
+        )
+
+        # Only configured admin
+        if (
+            ADMIN_CHAT_ID
+            and chat_id != ADMIN_CHAT_ID
+        ):
+
+            telegram(
+                "answerCallbackQuery",
+                {
+                    "callback_query_id": callback_id,
+                    "text": "⛔ Huna ruhusa."
+                }
+            )
+
+            return {
+                "ok": True
+            }
+
+        if data == "manage_bots":
+
+            manage_bots(
+                chat_id
+            )
+
+        elif data == "add_bot":
+
+            start_add_bot(
+                chat_id
+            )
+
+        elif data == "main_menu":
+
+            main_menu(
+                chat_id
+            )
+
+        elif data == "dashboard":
+
+            count = ManagedBot.query.count()
+
+            send_message(
+
+                chat_id,
+
+                "📊 DASHBOARD\n\n"
+
+                f"🤖 Connected Bots: {count}\n\n"
+
+                "Super Admin iko active."
+            )
+
+        elif data == "notifications":
+
+            send_message(
+
+                chat_id,
+
+                "🔔 NOTIFICATIONS\n\n"
+                "Hakuna notification mpya."
+            )
+
+        elif data == "settings":
+
+            send_message(
+
+                chat_id,
+
+                "⚙️ SETTINGS\n\n"
+
+                "Super Admin settings\n\n"
+
+                "🟢 System: Online\n"
+                "🔐 Security: Active"
+            )
+
+        telegram(
+            "answerCallbackQuery",
+            {
+                "callback_query_id": callback_id
+            }
         )
 
         return {
             "ok": True
         }
+
+    # --------------------------------------------------------
+    # NORMAL MESSAGE
+    # --------------------------------------------------------
 
     message = update.get(
         "message"
@@ -643,34 +886,25 @@ def telegram_webhook():
             ""
         ).strip()
 
-        if not chat_id:
-            return {
-                "ok": True
-            }
-
-        # Only allow configured admin
-        if ADMIN_CHAT_ID and chat_id != ADMIN_CHAT_ID:
+        if (
+            ADMIN_CHAT_ID
+            and chat_id != ADMIN_CHAT_ID
+        ):
 
             send_message(
                 chat_id,
-                "⛔ Huna ruhusa ya kutumia Super Admin."
+                "⛔ Huna ruhusa ya kutumia "
+                "Super Admin."
             )
 
             return {
                 "ok": True
             }
 
-        if text.lower() == "/start":
+        if text == "/start":
 
-            handle_start(
+            main_menu(
                 chat_id
-            )
-
-        else:
-
-            handle_text(
-                chat_id,
-                text
             )
 
     return {
@@ -678,39 +912,33 @@ def telegram_webhook():
     }
 
 
-# =========================================================
-# HEALTH CHECK
-# =========================================================
+# ============================================================
+# HOME
+# ============================================================
 
 @app.get("/")
 def home():
 
-    return (
-        "<h1>MKOP0 Super Admin</h1>"
-        "<p>Super Admin is running.</p>"
-    )
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport"
+              content="width=device-width,initial-scale=1">
 
+        <title>Super Admin</title>
 
-@app.get("/health")
-def health():
+        <style>
 
-    return {
-        "status": "ok"
-    }
+            body {
+                margin: 0;
+                font-family: Arial, sans-serif;
+                background: #0f1720;
+                color: white;
+            }
 
-
-# =========================================================
-# RUN
-# =========================================================
-
-if __name__ == "__main__":
-
-    app.run(
-        host="0.0.0.0",
-        port=int(
-            os.environ.get(
-                "PORT",
-                5000
-            )
-        )
-    )
+            .container {
+                max-width: 700px;
+                margin: 60px auto;
+                padding: 20
