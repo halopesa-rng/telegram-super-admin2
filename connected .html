@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="sw">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Bot Connected</title>
+
+    <style>
+
+        body {
+            margin:0;
+            padding:20px;
+            background:#101820;
+            color:white;
+            font-family:Arial,sans-serif;
+        }
+
+        .card {
+            max-width:500px;
+            margin:70px auto;
+            padding:30px;
+            background:#1c2733;
+            border-radius:20px;
+            text-align:center;
+        }
+
+        .success {
+            color:#35d07f;
+            font-size:22px;
+            font-weight:bold;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="card">
+
+    <div class="success">
+        ✅ BOT CONNECTED
+    </div>
+
+    <h2>{{ bot.name }}</h2>
+
+    <p>
+        Bot imeunganishwa kikamilifu
+        kwenye Super Admin.
+    </p>
+
+    {% if bot.username %}
+
+    <p>
+        👤 @{{ bot.username }}
+    </p>
+
+    {% endif %}
+
+    <p>
+        🆔 Bot ID: #{{ bot.id }}
+    </p>
+
+    <p>
+        🟢 Status: {{ bot.status }}
+    </p>
+
+    <p>
+        Sasa unaweza kurudi Telegram.
+    </p>
+
+</div>
+
+</body>
+
+</html>
